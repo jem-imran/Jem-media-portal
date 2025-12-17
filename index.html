@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Pro Media Portal</title>
+
+    <link rel="manifest" href="manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#121212">
+    <link rel="icon" href="https://cdn-icons-png.flaticon.com/512/564/564429.png">
+
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+    <style>
+        :root { --p: #3498db; --s: #2ecc71; --d: #e74c3c; --bg: #121212; --card: #1e1e1e; }
+        body { font-family: sans-serif; background: var(--bg); color: white; margin: 0; padding: 15px; display: flex; flex-direction: column; align-items: center; }
+        .container { width: 100%; max-width: 800px; }
+        .video-box { background: var(--card); padding: 15px; border-radius: 15px; box-shadow: 0 5px 20px rgba(0,0,0,0.5); }
+        video { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 10px; object-fit: cover; }
+        .controls { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 15px; }
+        button { padding: 15px; border: none; border-radius: 10px; font-weight: bold; color: white; cursor: pointer; }
+        .btn-main { background: var(--p); }
+        .btn-rec { background: var(--d); }
+        .feed { margin-top: 30px; display: grid; gap: 15px; }
+        .post { background: var(--card); padding: 10px; border-radius: 10px; border: 1px solid #333; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header style="text-align:center; margin-bottom:20px;">
+        <h1>🎙️ Android Pro Portal</h1>
+        <p id="status" style="color:var(--s); font-size:0.8em;">Status: Ready</p>
+    </header>
+
+    <div class="video-box">
+        <video id="preview" autoplay muted playsinline></video>
+        <div class="controls">
+            <button id="startBtn" class="btn-main">Start Studio</button>
+            <button id="recordBtn" class="btn-rec" disabled>🔴 Record</button>
+        </div>
+    </div>
+
+    <div class="feed" id="feed">
+        <h3>Community Feed</h3>
+        </div>
+</div>
+
+<script>
+    // --- BLOCK 2: SERVICE WORKER REGISTRATION ---
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('Service Worker Registered!', reg))
+                .catch(err => console.log('Service Worker Failed!', err));
+        });
+    }
+
+    // --- CONFIG & SUPABASE ---
+    const supabaseUrl = 'YOUR_SUPABASE_URL';
+    const supabaseKey = 'YOUR_SUPABASE_KEY';
+    const _supabase = supabase.createClient(supabaseUrl, supabaseKey);
+    let localStream, mediaRecorder;
+    let recordedChunks = [];
+
+    // --- BLOCK 3: NATIVE ANDROID INSTALL LOGIC ---
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferredPrompt = e;
+        // Add install button to UI
+        const installBtn = document.createElement('button');
+        installBtn.innerHTML = "📲 Install App";
+        installBtn.style = "position:fixed; bottom:20px; left:50%; transform:translateX(-50%); z-index:9999; background:var(--s); padding:12px 25px; border-radius:30px; border:none; color:white; font-weight:bold; box-shadow:0 10px 20px rgba(0,0,0,0.4);";
+        document.body.appendChild(installBtn);
+
+        installBtn.addEventListener('click', () => {
+            deferredPrompt.prompt();
+            installBtn.remove();
+        });
+    });
+
+    // --- CAMERA & BROADCAST LOGIC ---
+    document.getElementById('startBtn').onclick = async () => {
+
+try {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+            document.getElementById('preview').srcObject = localStream;
+            document.getElementById('recordBtn').disabled = false;
+            document.getElementById('status').innerText = "Status: LIVE";
+        } catch (err) {
+            alert("Please allow camera access!");
+        }
+    };
+
+    // --- RECORDING & UPLOAD ---
+    document.getElementById('recordBtn').onclick = () => {
+        const btn = document.getElementById('recordBtn');
+        if (btn.innerText.includes("Record")) {
+            recordedChunks = [];
+            mediaRecorder = new MediaRecorder(localStream);
+            mediaRecorder.ondataavailable = e => recordedChunks.push(e.data);
+            mediaRecorder.onstop = async () => {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                const fileName = android_vid_${Date.now()}.webm;
+                const { data, error } = await _supabase.storage.from('videos').upload(fileName, blob);
+                if (data) {
+                    const { data: { publicUrl } } = _supabase.storage.from('videos').getPublicUrl(fileName);
+                    await _supabase.from('media_posts').insert([{ url: publicUrl }]);
+                    alert("Upload Successful!");
+                }
+            };
+            mediaRecorder.start();
+            btn.innerText = "⏹️ Stop";
+            btn.style.background = "#555";
+        } else {
+            mediaRecorder.stop();
+            btn.innerText = "🔴 Record";
+            btn.style.background = "var(--d)";
+        }
+    };
+</script>
+</body>
+</html>

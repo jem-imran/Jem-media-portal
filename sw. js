@@ -1,0 +1,18 @@
+const CACHE_NAME = 'media-v1';
+// Files to work offline
+const urlsToCache = ['./', './index.html', './manifest.json'];
+
+self.addEventListener('install', event => {
+  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(urlsToCache)));
+});
+
+// Listen for Push Notifications from Supabase/Server
+self.addEventListener('push', event => {
+  const data = event.data ? event.data.json() : { title: 'Live Now!', body: 'Join the broadcast!' };
+  const options = {
+    body: data.body,
+    icon: 'https://cdn-icons-png.flaticon.com/512/564/564429.png',
+    vibrate: [200, 100, 200]
+  };
+  event.waitUntil(self.registration.showNotification(data.title, options));
+});
